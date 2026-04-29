@@ -1,34 +1,167 @@
-name: Python CI/CD
+name: AI-POWERED-CI-CD-Pipeline-Failure-Prediction
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Choose pipeline mode"
+        required: true
+        default: "success"
+        type: choice
+        options:
+          - success
+          - failure
+          - mixed
+
+env:
+  PYTHON_VERSION: "3.10"
 
 jobs:
+
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      start_time: ${{ steps.time.outputs.start_time }}
+
+    steps:
+      - name: Capture Start Time
+        id: time
+        run: echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+
+
   build:
     runs-on: ubuntu-latest
+    needs: setup
 
     steps:
-    - name: Checkout Repo
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Install Dependencies
-      run: |
-        pip install -r requirements.txt
+      - name: Install Dependencies
+        run: |
+          echo "Installing dependencies..."
+          pip install numpy
+          pip install pandas
 
-    - name: Run Tests
-      run: |
-        pytest || echo "No tests found"
+      - name: Simulate Build Logs
+        run: |
+          echo "WARNING: Deprecated package used"
+          echo "INFO: Build completed"
+
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Lint
+        run: |
+          echo "Running lint..."
+          echo "WARNING: Style issues found"
+
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Tests (Controlled Failure)
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+         
+          echo "Running tests in mode: $MODE"
+
+          if [ "$MODE" = "failure" ]; then
+            echo "ERROR: test_login failed"
+            exit 1
+          fi
+
+          if [ "$MODE" = "mixed" ]; then
+            echo "WARNING: flaky test detected"
+          fi
+
+          echo "All tests passed"
+
+
+  security:
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Security Scan
+        run: |
+          echo "Scanning dependencies..."
+          echo "WARNING: Vulnerability detected"
+
 
   deploy:
-    needs: build
     runs-on: ubuntu-latest
+    needs: security
+    if: always()
 
     steps:
-    - name: Deploy
-      run: echo "Deploying Flask App..."
+      - name: Deploy App
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+
+          if [ "$MODE" = "failure" ]; then
+            echo "ERROR: Deployment timeout"
+            exit 1
+          fi
+
+          echo "Deployment successful"
+
+
+  metrics:
+    runs-on: ubuntu-latest
+    needs: [deploy, setup]
+    if: always()
+
+    steps:
+      - name: Generate ML JSON
+        run: |
+          END=$(date +%s)
+          START=${{ needs.setup.outputs.start_time }}
+          DURATION=$((END - START))
+
+          MODE="${{ github.event.inputs.mode }}"
+
+          if [ "$MODE" = "failure" ]; then
+            ERRORS=5
+            WARNINGS=3
+          elif [ "$MODE" = "mixed" ]; then
+            ERRORS=2
+            WARNINGS=4
+          else
+            ERRORS=0
+            WARNINGS=1
+          fi
+
+          echo "{
+            \"error_count\": $ERRORS,
+            \"warning_count\": $WARNINGS,
+            \"dependency_downloads\": 20,
+            \"install_steps\": 2,
+            \"duration\": $DURATION,
+            \"retry_count\": 1,
+            \"has_git_clone\": 1
+          }" > pipeline_metrics.json
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-metrics
+          path: pipeline_metrics.json
